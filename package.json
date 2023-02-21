@@ -1,0 +1,15 @@
+{
+  "name": "city_explorer_api",
+  "version": "1.0.0",
+  "description": "\"a simple server\"",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "\"Mahmoud Almohammad\"",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.0.3",
+    "express": "^4.18.2"
+  }
+}
