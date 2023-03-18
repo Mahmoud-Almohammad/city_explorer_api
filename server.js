@@ -4,6 +4,7 @@
 const express = require('express');
 const cors = require('cors');
 const superagent = require('superagent');
+const pg = require('pg');
 
 //-------------------------------------------------------------------------------------------------
 
@@ -22,7 +23,9 @@ app.use(cors());
 // Route Definitions
 app.get('/location', getLocationData);
 app.get('/weather', getWeatherData);
-app.get('/parks', parksHandler)
+app.get('/parks', parksHandler);
+app.get('/movies', moviesHandler);
+app.get('/yelp', yelpHandler);
 app.get('/*', handleErrors);
 
 //-------------------------------------------------------------------------------------------------
@@ -60,7 +63,6 @@ function getLocationData (req, res) {
 // Checking if we have this requset requested already and if not send a request to another server and get the data and send it back to the user
     if(locations[url]) {
         res.send(locations[url]);
-        console.log(locations[url]);
     } else {
         superagent.get(url)
         .then( data => {
@@ -161,6 +163,92 @@ function parksHandler (req, res) {
      catch (error) {
         console.log('Error', error)
         res.status(500).send('We are sorry, something went wrong.')
+    }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+/**
+ * This function send a request to movies server and get the data, process it, then send it back to the user
+ * @param {*} req the request that come from the user to this server
+ * @param {*} res the response that this server send it back to the user
+ */
+function moviesHandler (req, res) {
+
+    // create a constructer function to create objects for parks
+    function MoviesObj (title, overview, average_votes, total_votes, image_url, popularity, released_on) {
+        this.title = title;
+        this.overview = overview;
+        this.average_votes = average_votes;
+        this.total_votes = total_votes;
+        this.image_url = 'https://image.tmdb.org/t/p/w500' + image_url;
+        this.popularity = popularity;
+        this.released_on = released_on;
+    };
+
+    const moviesKey = process.env.MOVIE_API_KEY;
+    const location = req.query.search_query;
+
+    const moviesUrl = `https://api.themoviedb.org/3/search/movie?api_key=${moviesKey}&query=${location}`;
+
+    try {
+        superagent.get(moviesUrl)
+        .then( moviesData => {
+            const movies = moviesData.body;
+            const allMovies = movies.results.map( movie => {
+                return new MoviesObj (movie.title, movie.overview, movie.vote_average, movie.vote_count, movie.poster_path, movie.popularity, movie.release_date);
+            });
+            res.json(allMovies);
+        })
+    }
+     // handle errors
+     catch (error) {
+        console.log('Error', error)
+        res.status(500).send('We are sorry, something went wrong.')
+    }
+
+}
+
+//-------------------------------------------------------------------------------------------------
+
+/**
+ * This function send a request to movies server and get the data, process it, then send it back to the user
+ * @param {*} req the request that come from the user to this server
+ * @param {*} res the response that this server send it back to the user
+ */
+function yelpHandler (req, res) {
+
+    function YelpObj (name, image_url, price, rating, url) {
+        this.name = name;
+        this.image_url = image_url;
+        this.price = price;
+        this.rating = rating;
+        this.url = url;
+    }
+
+    function getOffset (page) {
+        const offset = (5 * page) - 5
+        return offset;
+    }
+
+    const location = req.query.search_query;
+    const page = req.query.page;
+    const yelpKey = process.env.YELP_API_KEY;
+    const yelpUrl = `https://api.yelp.com/v3/businesses/search?term=restaurants&limit=5&sort_by=rating&location=${location}&page=${page}&offest=${getOffset (page)}`;
+
+    try {
+        console.log(getOffset(page), page, yelpUrl)
+        superagent.get(yelpUrl)
+        .set('Authorization', `Bearer ${yelpKey}`)
+        .then(data => {
+            const yelpBody = data.body;
+            const restaurants = yelpBody.businesses.map( restaurant => new YelpObj(restaurant.name, restaurant.image_url, restaurant.price, restaurant.rating, restaurant.url));
+            res.json(restaurants);
+        })
+    }
+    catch (error) {
+        console.log('Error', error);
+        res.status(500).send('something went wrong')
     }
 }
 
