@@ -16,6 +16,13 @@ require('dotenv').config();
 // Setup
 const app = express();
 const PORT = process.env.PORT;
+const DATABASE_URL = process.env.DATABASE_URL;
+const client = new pg.Client(DATABASE_URL);
+
+client.on('error', err => {
+    console.log('Error ', err);
+});
+
 app.use(cors());
 
 //-------------------------------------------------------------------------------------------------
@@ -36,46 +43,58 @@ const locations = {};
  * @param {*} req the request that come from the user to this server
  * @param {*} res the response that this server send it back to the user
  */
-// Locaion Handler function
 function getLocationData (req, res) {
 
 // Create a constructor function to create objects for locations
-    const LocationObj = function (city, location) {
+    const LocationObj = function (city, formatted_query, latitude, longitude) {
         this.search_query = city;
-        this.formatted_query = location.display_name;
-        this.latitude = location.lat;
-        this.longitude = location.lon;
+        this.formatted_query = formatted_query;
+        this.latitude = latitude;
+        this.longitude = longitude;
     }
-
-
-// Get the data from the json file
+    // get the city from the client 
     const city = req.query.city;
     const key = process.env.GEOCODE_API_KEY;
     const url = `https://us1.locationiq.com/v1/search.php?key=${key}&q=${city}&format=json&limit=1`;
+    // write the sql statement 
+    const findCity = 'SELECT * FROM city WHERE search_query = $1';
+    const value = [city];
 
 
-// Shonimg an error message if no city specified
+// Showing an error message if no city specified
     if (!city) {
         throw ('no city found')
     }
+    
+// Checking if we have this city in the database and if not send a request to another locationiq
+// and get the data then send it back to the user
+client.query(findCity, value)
+.then(dataFromDB => {
+    if(dataFromDB.rowCount === 0) {
+        // request data from the API
 
-
-// Checking if we have this requset requested already and if not send a request to another server and get the data and send it back to the user
-    if(locations[url]) {
-        res.send(locations[url]);
-    } else {
         superagent.get(url)
-        .then( data => {
-            const location = data.body[0];
-            const locationData = new LocationObj (city, location);
-            locations[url] = locationData;
+        .then( dataFromAPI => {
+            const location = dataFromAPI.body[0];
+            // make city instance from the data 
+            const locationData = new LocationObj (city, location.display_name, location.lat, location.lon);
+            // save the data in the database
+            const saveToDB = 'INSERT INTO city (search_query, formatted_query, latitude, longitude) VALUES ($1, $2, $3, $4)'
+            const cityValues = [city, location.display_name, location.lat, location.lon];
+            client.query(saveToDB, cityValues);
+
+            // respond to the client with the data
             res.send(locationData);
-        })
-        .catch( error => {
-            console.log('ERROR', error);
-            res.status(500).send('So sorry, something went wrong.');
-          });
-    }    
+       })
+    } else {
+        const databaseRow = dataFromDB.rows[0];
+        const city_data = new LocationObj(city, databaseRow.formatted_query, databaseRow.latitude, databaseRow.longitude);
+        res.send(city_data);
+    }
+})
+.catch( err => {
+    console.log('Error', err);
+   });
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -85,7 +104,6 @@ function getLocationData (req, res) {
  * @param {*} req the request that come from the user to this server
  * @param {*} res the response that this server send it back to the user
  */
-    // Weather Handler function
 function getWeatherData (req, res) {
 
     // Create a constructor function to create objects for weathers
@@ -93,8 +111,7 @@ function getWeatherData (req, res) {
             this.forecast = forecast;
             this.time = time;
         }
-    
-    // get the key from env file and the latitude and longitude from the request query from the client and then set the url request to send it to the weather bit server
+
         const weatherKey = process.env.WEATHER_API_KEY;
         const userLocationInput = {
             lat: req.query.latitude,
@@ -103,7 +120,6 @@ function getWeatherData (req, res) {
         let weatherUrl = `http://api.weatherbit.io/v2.0/forecast/daily?key=${weatherKey}&lat=${userLocationInput.lat}&lon=${userLocationInput.lon}&days=8`
         
     // make a superagent request and make a promise so when its done evaluating and it resolved this code will run
-
     try {
         superagent.get(weatherUrl)
         .then( weatherData => {
@@ -114,7 +130,6 @@ function getWeatherData (req, res) {
         res.send(allDaysWeather);
         })
     }
-
     // handle errors
         catch (error) {
             console.log('Error', error)
@@ -129,8 +144,6 @@ function getWeatherData (req, res) {
  * @param {*} req the request that come from the user to this server
  * @param {*} res the response that this server send it back to the user
  */
-
-// create park handler function
 function parksHandler (req, res) {
 
     // create a constructer function to create objects for parks
@@ -142,10 +155,8 @@ function parksHandler (req, res) {
       this.url = url;
     }
 
-    // get the key from env file and the latitude and longitude from the request query from the client and then set the url request to send it to the national park service server
     const parksKey = process.env.PARKS_API_KEY;
-    const location = req.query.search_query;
-       
+    const location = req.query.search_query;     
     const parksUrl = `https://developer.nps.gov/api/v1/parks?api_key=${parksKey}&q=${location}&limit=10`;
 
     // make a superagent request and make a promise so when its done evaluating and it resolved this code will run
@@ -260,8 +271,14 @@ function handleErrors (req, res) {
 
 //-------------------------------------------------------------------------------------------------
 
-// Listen to the current port
-app.listen(PORT, () => {
-    console.log('server is working on port ' + PORT)
-});
-
+// Listen to the current port when the db connection is done
+client.connect()
+.then( () => {
+    app.listen(PORT, () => {
+        console.log("Connected to database:", client.connectionParameters.database);
+        console.log('server is working on port ' + PORT)
+    });
+})
+.catch( err => {
+    console.log('Error', err);
+})
