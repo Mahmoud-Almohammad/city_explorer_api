@@ -105,7 +105,7 @@ Finish time: 1:00am.
 
 Actual time needed to complete: 4 hours.
 
-### lab 7 feature 3: Parks
+### lab 7 feature 4: Parks
 
 Estimate of time needed to complete: 3 hours.
 
